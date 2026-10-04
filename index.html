@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Parcours 3D - Modo Celular & Obstáculos Ajustados</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M5 21V3M5 4h13l-3 4.5 3 4.5H5' fill='%2300d8ff' stroke='%2300d8ff' stroke-width='2' stroke-linejoin='round' stroke-linecap='round'/%3E%3C/svg%3E">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; touch-action: manipulation; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+        body { overflow: hidden; font-family: Arial, sans-serif; background: #87CEEB; user-select: none; -webkit-user-select: none; }
+        #game-container { width: 100vw; height: 100vh; height: 100dvh; position: relative; }
+        #canvas { display: block; width: 100%; height: 100%; }
+
+        /* ICONOS (sprite SVG) */
+        .ic { width: 1.25em; height: 1.25em; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; vertical-align: -0.25em; flex: none; }
+
+        #ui { position: absolute; top: 15px; left: 15px; color: white; text-shadow: 2px 2px 4px black; pointer-events: none; z-index: 100; }
+        #info { background: rgba(0,0,0,0.6); padding: 10px 15px; border-radius: 10px; font-size: 13px; line-height: 1.6; }
+        #info strong { color: #00ff88; font-size: 15px; }
+        #info p { display: flex; align-items: center; gap: 8px; }
+        #cp-count { color: #00d8ff; font-weight: bold; }
+
+        #checkpoint-banner { position: absolute; top: 15px; left: 50%; transform: translateX(-50%); background: rgba(0, 204, 255, 0.9); color: black; font-weight: bold; padding: 8px 20px; border-radius: 20px; font-size: 16px; display: none; align-items: center; gap: 8px; box-shadow: 0 0 15px rgba(0,204,255,0.8); z-index: 101; white-space: nowrap; }
+        #death-zone { position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%); background: rgba(255, 0, 0, 0.85); color: white; padding: 8px 16px; border-radius: 8px; font-size: 16px; display: none; align-items: center; gap: 8px; z-index: 101; white-space: nowrap; }
+        #win-zone { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0, 255, 136, 0.95); color: black; padding: 25px 40px; border-radius: 15px; font-size: 22px; display: none; text-align: center; font-weight: bold; z-index: 102; }
+        #win-zone .ic { width: 1.1em; height: 1.1em; }
+        #btn-restart { margin-top: 15px; padding: 8px 16px; font-size: 16px; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+
+        /* CONTROLES TÁCTILES MÓVIL */
+        .touch-btn {
+            position: absolute;
+            background: rgba(255, 255, 255, 0.35);
+            border: 2px solid rgba(255, 255, 255, 0.7);
+            border-radius: 50%;
+            color: white;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            font-size: 22px;
+            text-shadow: 1px 1px 2px black;
+            z-index: 200;
+            touch-action: none;
+        }
+        .touch-btn .ic { width: 28px; height: 28px; filter: drop-shadow(1px 1px 1px rgba(0,0,0,.6)); }
+        .touch-btn:active, .touch-btn.pressed { background: rgba(0, 255, 136, 0.7); }
+
+        #dpad-up { bottom: 110px; left: 70px; width: 60px; height: 60px; }
+        #dpad-down { bottom: 20px; left: 70px; width: 60px; height: 60px; }
+        #dpad-left { bottom: 65px; left: 15px; width: 60px; height: 60px; }
+        #dpad-right { bottom: 65px; left: 125px; width: 60px; height: 60px; }
+        #btn-jump { bottom: 35px; right: 25px; width: 85px; height: 85px; font-size: 14px; flex-direction: column; background: rgba(0, 150, 255, 0.5); }
+        #btn-jump .ic { width: 30px; height: 30px; }
+    </style>
+</head>
+<body>
+    <!-- Sprite de iconos -->
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+        <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></symbol>
+        <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 5v14M19 12l-7 7-7-7"/></symbol>
+        <symbol id="i-left" viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></symbol>
+        <symbol id="i-right" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></symbol>
+        <symbol id="i-jump" viewBox="0 0 24 24"><path d="M6 11l6-6 6 6M6 19l6-6 6 6"/></symbol>
+        <symbol id="i-flag" viewBox="0 0 24 24"><path d="M5 21V3M5 4h13l-3 4.5 3 4.5H5"/></symbol>
+        <symbol id="i-gamepad" viewBox="0 0 24 24"><path d="M7 7h10a4 4 0 0 1 4 4v3a3 3 0 0 1-5.2 2L14.5 14h-5l-1.3 2A3 3 0 0 1 3 14v-3a4 4 0 0 1 4-4z"/><path d="M8 10v4M6 12h4"/><circle cx="15.5" cy="11" r=".6"/><circle cx="17.5" cy="13" r=".6"/></symbol>
+        <symbol id="i-keyboard" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></symbol>
+        <symbol id="i-phone" viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></symbol>
+        <symbol id="i-trophy" viewBox="0 0 24 24"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4zM7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3"/></symbol>
+        <symbol id="i-skull" viewBox="0 0 24 24"><path d="M12 3a8 8 0 0 0-8 8c0 2.5 1.2 4.2 3 5.3V20h10v-3.7c1.8-1.1 3-2.8 3-5.3a8 8 0 0 0-8-8z"/><path d="M10 20v-2M14 20v-2"/><circle cx="9" cy="11" r="1.3" fill="currentColor" stroke="none"/><circle cx="15" cy="11" r="1.3" fill="currentColor" stroke="none"/></symbol>
+        <symbol id="i-restart" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7M3 4v5h5"/></symbol>
+    </svg>
+
+    <div id="game-container">
+        <canvas id="canvas"></canvas>
+        <div id="ui">
+            <div id="info">
+                <p><svg class="ic" style="color:#00ff88"><use href="#i-gamepad"/></svg><strong>PARCOURS 3D (MÓVIL / PC)</strong></p>
+                <p><svg class="ic"><use href="#i-keyboard"/></svg>PC: WASD o flechas + Espacio</p>
+                <p><svg class="ic"><use href="#i-phone"/></svg>Celular: botones táctiles</p>
+                <p><svg class="ic" style="color:#00d8ff"><use href="#i-flag"/></svg>Esferas = Checkpoints <span id="cp-count">0/4</span></p>
+            </div>
+        </div>
+        <div id="checkpoint-banner"><svg class="ic"><use href="#i-flag"/></svg>¡CHECKPOINT GUARDADO!</div>
+        <div id="death-zone"><svg class="ic"><use href="#i-skull"/></svg>¡Caíste! Reapareciendo en Checkpoint...</div>
+        <div id="win-zone">
+            <svg class="ic"><use href="#i-trophy"/></svg> ¡HAS GANADO! <svg class="ic"><use href="#i-trophy"/></svg><br>
+            <small>Toca Reiniciar para volver a empezar</small><br>
+            <button id="btn-restart"><svg class="ic"><use href="#i-restart"/></svg>Reiniciar</button>
+        </div>
+
+        <!-- Controles Móviles -->
+        <div id="dpad-up" class="touch-btn" aria-label="Avanzar"><svg class="ic"><use href="#i-up"/></svg></div>
+        <div id="dpad-down" class="touch-btn" aria-label="Retroceder"><svg class="ic"><use href="#i-down"/></svg></div>
+        <div id="dpad-left" class="touch-btn" aria-label="Girar a la izquierda"><svg class="ic"><use href="#i-left"/></svg></div>
+        <div id="dpad-right" class="touch-btn" aria-label="Girar a la derecha"><svg class="ic"><use href="#i-right"/></svg></div>
+        <div id="btn-jump" class="touch-btn" aria-label="Saltar"><svg class="ic"><use href="#i-jump"/></svg>SALTAR</div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/three@0.159.0/build/three.min.js"></script>
+    <script>
+        let scene, camera, renderer, dirLight;
+        let playerMesh, leftArm, rightArm, leftLeg, rightLeg;
+        let checkpoints = [];
+        let currentCheckpoint = { x: 0, y: 0.5, z: 0 };
+        let bannerTimeout;
+        let walkCycle = 0;
+        let dying = false;
+        let metaPlatform = null;
+
+        let player = {
+            x: 0, y: 0.5, z: 0,
+            angle: 0, velocityY: 0,
+            onGround: false, won: false
+        };
+
+        let keys = {};
+        let platforms = [];
+
+        // Física a paso fijo (60 Hz): el juego va igual en pantallas de 60, 90 o 120 Hz
+        const STEP_MS = 1000 / 60;
+        const gravity = 0.012;
+        const speed = 0.16;
+        const rotSpeed = 0.035;
+        const jumpForce = 0.32;
+        const COYOTE_FRAMES = 6;      // margen para saltar justo al salir del borde
+        const JUMP_BUFFER_FRAMES = 6; // margen si se pulsa saltar un instante antes de aterrizar
+        let coyote = 0;
+        let jumpBuffer = 0;
+
+        const KEY_ALIAS = { ArrowUp: 'KeyW', ArrowDown: 'KeyS', ArrowLeft: 'KeyA', ArrowRight: 'KeyD' };
+
+        function press(code) {
+            if (code === 'Space' && !keys.Space) jumpBuffer = JUMP_BUFFER_FRAMES;
+            keys[code] = true;
+        }
+        function release(code) { keys[code] = false; }
+        function releaseAll() {
+            keys = {};
+            document.querySelectorAll('.touch-btn.pressed').forEach(b => b.classList.remove('pressed'));
+        }
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x87CEEB);
+            scene.fog = new THREE.Fog(0x87CEEB, 100, 450);
+
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+
+            renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas'), antialias: true });
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+
+            // La luz sigue al jugador y su cámara de sombras cubre solo la zona cercana.
+            // (Antes la cámara de sombras era la de por defecto y no cubría el recorrido.)
+            dirLight = new THREE.DirectionalLight(0xffffff, 0.9);
+            dirLight.castShadow = true;
+            dirLight.shadow.mapSize.set(2048, 2048);
+            const sc = dirLight.shadow.camera;
+            sc.left = -40; sc.right = 40; sc.top = 40; sc.bottom = -40;
+            sc.near = 1; sc.far = 400;
+            scene.add(dirLight);
+            scene.add(dirLight.target);
+
+            createPlayerMesh();
+            createLongParcours();
+            setupTouchControls();
+            updateCheckpointHud();
+            resetGame(true);
+
+            document.addEventListener('keydown', (e) => {
+                const code = KEY_ALIAS[e.code] || e.code;
+                if (e.code === 'Space' || e.code in KEY_ALIAS) e.preventDefault(); // evita scroll y clics en botones enfocados
+                if (!e.repeat) press(code);
+                if (e.code === 'KeyR' && player.won) resetGame(true);
+            });
+            document.addEventListener('keyup', (e) => release(KEY_ALIAS[e.code] || e.code));
+
+            // Evita teclas/botones "pegados" al perder el foco
+            window.addEventListener('blur', releaseAll);
+            document.addEventListener('visibilitychange', () => { if (document.hidden) releaseAll(); });
+            document.addEventListener('contextmenu', (e) => e.preventDefault());
+
+            document.getElementById('btn-restart').addEventListener('click', (e) => {
+                e.currentTarget.blur();
+                resetGame(true);
+            });
+
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+
+            requestAnimationFrame(animate);
+        }
+
+        function setupTouchControls() {
+            // Pointer Events: un solo código para dedo y ratón, sin eventos duplicados,
+            // y con "capture" para que el botón se suelte aunque el dedo se deslice fuera.
+            const bindTouch = (elemId, keyCode) => {
+                const elem = document.getElementById(elemId);
+                elem.addEventListener('pointerdown', (e) => {
+                    e.preventDefault();
+                    try { elem.setPointerCapture(e.pointerId); } catch (_) {}
+                    elem.classList.add('pressed');
+                    press(keyCode);
+                });
+                const up = () => { elem.classList.remove('pressed'); release(keyCode); };
+                ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(ev => elem.addEventListener(ev, up));
+            };
+
+            bindTouch('dpad-up', 'KeyW');
+            bindTouch('dpad-down', 'KeyS');
+            bindTouch('dpad-left', 'KeyA');
+            bindTouch('dpad-right', 'KeyD');
+            bindTouch('btn-jump', 'Space');
+        }
+
+        function createPlayerMesh() {
+            const group = new THREE.Group();
+
+            const bodyGeo = new THREE.BoxGeometry(0.8, 1.0, 0.5);
+            const bodyMat = new THREE.MeshStandardMaterial({ color: 0x0055ff });
+            const body = new THREE.Mesh(bodyGeo, bodyMat);
+            body.position.y = 1.0;
+            body.castShadow = true;
+            group.add(body);
+
+            const headGeo = new THREE.BoxGeometry(0.6, 0.6, 0.6);
+            const headMat = new THREE.MeshStandardMaterial({ color: 0xffcc99 });
+            const head = new THREE.Mesh(headGeo, headMat);
+            head.position.y = 1.8;
+            head.castShadow = true;
+            group.add(head);
+
+            const limbMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
+            const limbGeo = new THREE.BoxGeometry(0.25, 0.8, 0.25);
+
+            leftArm = new THREE.Mesh(limbGeo, limbMat);
+            leftArm.position.set(-0.55, 1.0, 0);
+            leftArm.castShadow = true;
+            group.add(leftArm);
+
+            rightArm = new THREE.Mesh(limbGeo, limbMat);
+            rightArm.position.set(0.55, 1.0, 0);
+            rightArm.castShadow = true;
+            group.add(rightArm);
+
+            leftLeg = new THREE.Mesh(limbGeo, limbMat);
+            leftLeg.position.set(-0.25, 0.4, 0);
+            leftLeg.castShadow = true;
+            group.add(leftLeg);
+
+            rightLeg = new THREE.Mesh(limbGeo, limbMat);
+            rightLeg.position.set(0.25, 0.4, 0);
+            rightLeg.castShadow = true;
+            group.add(rightLeg);
+
+            playerMesh = group;
+            scene.add(playerMesh);
+        }
+
+        function createPlatform(x, y, z, w, h, d, color, isCheckpoint = false) {
+            const platform = new THREE.Mesh(
+                new THREE.BoxGeometry(w, h, d),
+                new THREE.MeshStandardMaterial({ color: color, roughness: 0.6 })
+            );
+            platform.position.set(x, y, z);
+            platform.castShadow = true;
+            platform.receiveShadow = true;
+            scene.add(platform);
+
+            const plat = {
+                minX: x - w/2, maxX: x + w/2,
+                minY: y - h/2, maxY: y + h/2,
+                minZ: z - d/2, maxZ: z + d/2,
+                topY: y + h/2
+            };
+            platforms.push(plat);
+
+            if (isCheckpoint) {
+                const orbGeo = new THREE.SphereGeometry(0.8, 16, 16);
+                const orbMat = new THREE.MeshBasicMaterial({ color: 0x00d8ff, wireframe: true });
+                const orb = new THREE.Mesh(orbGeo, orbMat);
+                orb.position.set(x, y + h/2 + 1.5, z);
+                scene.add(orb);
+
+                checkpoints.push({
+                    x: x, y: y + h/2 + 1.5, z: z,
+                    spawnY: plat.topY + 0.5, // el jugador reaparece sobre la plataforma, no sobre la esfera
+                    active: false, orbMesh: orb
+                });
+            }
+            return plat;
+        }
+
+        function createLongParcours() {
+            createPlatform(0, -1, 0, 10, 2, 10, 0x4a4a4a);
+
+            // Tramo 1
+            createPlatform(10, 0, 0, 8, 1, 8, 0xff6666);
+            createPlatform(19, 1, 2, 7, 1, 7, 0xff8866);
+            createPlatform(28, 2, -2, 7, 1, 7, 0xffaa66);
+
+            // CHECKPOINT 1
+            createPlatform(39, 3, 0, 9, 1, 9, 0x333333, true);
+
+            // Tramo 2
+            createPlatform(50, 4.5, 4, 6, 1, 6, 0xffcc66);
+            createPlatform(61, 6, -4, 6, 1, 6, 0xffff66);
+            createPlatform(72, 7.5, 4, 6, 1, 6, 0xccff66);
+            createPlatform(83, 9, -4, 5, 1, 5, 0x88ff66);
+
+            // CHECKPOINT 2
+            createPlatform(96, 10.5, 0, 9, 1, 9, 0x333333, true);
+
+            // Tramo 3
+            createPlatform(108, 12, 3, 5, 1, 5, 0x66ff88);
+            createPlatform(119, 13.5, -3, 5, 1, 5, 0x66ffaa);
+            createPlatform(130, 15, 3, 5, 1, 5, 0x66ffcc);
+            createPlatform(141, 16.5, -3, 5, 1, 5, 0x66ccff);
+
+            // CHECKPOINT 3
+            createPlatform(154, 18, 0, 9, 1, 9, 0x333333, true);
+
+            // Tramo 4 (plataformas de 6 en vez de 5: los huecos de 8 estaban en el límite del salto)
+            createPlatform(167, 20, 5, 6, 1, 6, 0x6688ff);
+            createPlatform(180, 22, 8, 6, 1, 6, 0x8866ff);
+            createPlatform(193, 24, 5, 6, 1, 6, 0xaa66ff);
+            createPlatform(206, 26, 0, 6, 1, 6, 0xcc66ff);
+
+            // CHECKPOINT 4
+            createPlatform(220, 28, 0, 9, 1, 9, 0x333333, true);
+
+            // Tramo 5 (AJUSTADO: Huecos más cercanos y cómodos)
+            createPlatform(231, 29.5, 4, 5, 1, 5, 0xff66cc);
+            createPlatform(241, 31.0, -4, 5, 1, 5, 0xff66aa);
+            createPlatform(251, 32.5, 4, 5, 1, 5, 0xff6688);
+
+            // META DORADA ALCANZABLE
+            metaPlatform = createPlatform(264, 34.0, 0, 14, 1, 14, 0xffd700);
+        }
+
+        function checkPlatformCollisions(prevY) {
+            player.onGround = false;
+            if (player.velocityY > 0) return; // subiendo: se atraviesa por debajo
+            for (let plat of platforms) {
+                const margin = 0.4;
+                if (player.x >= plat.minX - margin && player.x <= plat.maxX + margin &&
+                    player.z >= plat.minZ - margin && player.z <= plat.maxZ + margin) {
+                    // Aterriza si venía desde arriba y cruzó (o tocó) la superficie en este paso.
+                    // Con prevY no se "atraviesa" la plataforma en caídas largas.
+                    if (prevY >= plat.topY - 0.05 && player.y <= plat.topY) {
+                        player.y = plat.topY;
+                        player.velocityY = 0;
+                        player.onGround = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        function updateCheckpointHud() {
+            const n = checkpoints.filter(c => c.active).length;
+            document.getElementById('cp-count').textContent = n + '/' + checkpoints.length;
+        }
+
+        function checkCheckpoints() {
+            checkpoints.forEach((cp) => {
+                if (cp.active) return;
+                const dist = Math.hypot(player.x - cp.x, player.z - cp.z);
+                if (dist < 4 && Math.abs(player.y - cp.y) < 3) {
+                    cp.active = true;
+                    currentCheckpoint = { x: cp.x, y: cp.spawnY, z: cp.z };
+                    cp.orbMesh.material.color.setHex(0x00ff88);
+                    updateCheckpointHud();
+                    showCheckpointBanner();
+                }
+            });
+        }
+
+        function showCheckpointBanner() {
+            const banner = document.getElementById('checkpoint-banner');
+            banner.style.display = 'flex';
+            clearTimeout(bannerTimeout);
+            bannerTimeout = setTimeout(() => { banner.style.display = 'none'; }, 2500);
+        }
+
+        function updateCamera() {
+            const camDist = 10;
+            const camHeight = 4;
+            camera.position.x = player.x + Math.sin(player.angle) * camDist;
+            camera.position.y = player.y + camHeight;
+            camera.position.z = player.z + Math.cos(player.angle) * camDist;
+            camera.lookAt(player.x, player.y + 1, player.z);
+        }
+
+        function resetGame(fullReset = false) {
+            if (fullReset) {
+                currentCheckpoint = { x: 0, y: 0.5, z: 0 };
+                checkpoints.forEach(cp => { cp.active = false; cp.orbMesh.material.color.setHex(0x00d8ff); });
+                player.angle = 0;
+                updateCheckpointHud();
+                document.getElementById('checkpoint-banner').style.display = 'none';
+            }
+            player.x = currentCheckpoint.x;
+            player.y = currentCheckpoint.y;
+            player.z = currentCheckpoint.z;
+            player.velocityY = 0;
+            player.won = false;
+            dying = false;
+            coyote = 0;
+            jumpBuffer = 0;
+            releaseAll();
+            playerMesh.position.set(player.x, player.y, player.z);
+            document.getElementById('win-zone').style.display = 'none';
+            document.getElementById('death-zone').style.display = 'none';
+        }
+
+        function die() {
+            // Antes se programaba un reinicio en CADA frame mientras y < -20 (decenas de timeouts).
+            // Ahora solo se dispara una vez.
+            dying = true;
+            document.getElementById('death-zone').style.display = 'flex';
+            setTimeout(() => { resetGame(false); }, 600);
+        }
+
+        function update() {
+            if (player.won || dying) return;
+
+            if (keys['KeyA']) player.angle += rotSpeed;
+            if (keys['KeyD']) player.angle -= rotSpeed;
+
+            let moveX = 0, moveZ = 0;
+            let moving = false;
+
+            if (keys['KeyW']) {
+                moveX -= Math.sin(player.angle) * speed;
+                moveZ -= Math.cos(player.angle) * speed;
+                moving = true;
+            }
+            if (keys['KeyS']) {
+                moveX += Math.sin(player.angle) * speed;
+                moveZ += Math.cos(player.angle) * speed;
+                moving = true;
+            }
+
+            player.x += moveX;
+            player.z += moveZ;
+
+            if (moving && player.onGround) {
+                walkCycle += 0.2;
+                leftArm.rotation.x = Math.sin(walkCycle) * 0.6;
+                rightArm.rotation.x = -Math.sin(walkCycle) * 0.6;
+                leftLeg.rotation.x = -Math.sin(walkCycle) * 0.6;
+                rightLeg.rotation.x = Math.sin(walkCycle) * 0.6;
+            } else {
+                leftArm.rotation.x = 0;
+                rightArm.rotation.x = 0;
+                leftLeg.rotation.x = 0;
+                rightLeg.rotation.x = 0;
+            }
+
+            if ((keys['Space'] || jumpBuffer > 0) && coyote > 0) {
+                player.velocityY = jumpForce;
+                player.onGround = false;
+                coyote = 0;
+                jumpBuffer = 0;
+            }
+            if (jumpBuffer > 0) jumpBuffer--;
+
+            const prevY = player.y;
+            player.y += player.velocityY;
+            player.velocityY -= gravity;
+
+            checkPlatformCollisions(prevY);
+
+            if (player.onGround) coyote = COYOTE_FRAMES;
+            else if (coyote > 0) coyote--;
+
+            checkCheckpoints();
+
+            playerMesh.position.set(player.x, player.y, player.z);
+            playerMesh.rotation.y = player.angle;
+
+            checkpoints.forEach(cp => cp.orbMesh.rotation.y += 0.03);
+
+            if (player.y < -20) {
+                die();
+                return;
+            }
+
+            // Victoria: hay que estar APOYADO sobre la plataforma dorada
+            // (antes se ganaba en el aire al cruzar x > 255 a cierta altura).
+            const m = metaPlatform;
+            if (player.onGround &&
+                player.x >= m.minX && player.x <= m.maxX &&
+                player.z >= m.minZ && player.z <= m.maxZ &&
+                Math.abs(player.y - m.topY) < 0.1) {
+                player.won = true;
+                releaseAll();
+                document.getElementById('win-zone').style.display = 'block';
+            }
+        }
+
+        let lastTime = 0;
+        let acc = 0;
+        function animate(now) {
+            requestAnimationFrame(animate);
+            if (!lastTime) lastTime = now;
+            acc += Math.min(now - lastTime, 100); // tope por si la pestaña estuvo en segundo plano
+            lastTime = now;
+            while (acc >= STEP_MS) { update(); acc -= STEP_MS; }
+
+            // La luz de sombras acompaña al jugador
+            dirLight.position.set(player.x + 40, player.y + 80, player.z + 40);
+            dirLight.target.position.set(player.x, player.y, player.z);
+
+            updateCamera();
+            renderer.render(scene, camera);
+        }
+
+        init();
+    </script>
+</body>
+</html>
